@@ -319,6 +319,50 @@ jobs:
       - name: Compile graphics
         run: ./compile_graphics.sh
 
+      # The runner has Xcode 15.4, but this source ships its app icons in the
+      # .icon Icon Composer format -- SVGs plus icon.json -- which is Xcode 26
+      # only. Assets.xcassets therefore has no AppIcon.appiconset, while the
+      # project still sets ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon, so
+      # actool fails:
+      #
+      #   None of the input catalogs contained a matching stickers icon set
+      #   or app icon set named "AppIcon".
+      #
+      # Build a classic single-size appiconset from the 1024 PNG the repo
+      # already carries. iOS app icons may not have an alpha channel and that
+      # PNG is RGBA, so flatten it through JPEG first -- sips has no direct
+      # way to drop alpha.
+      - name: Build AppIcon asset catalog
+        run: |
+          set -eux
+          case "$APP_IOS_TYPE" in
+            "monero.com") SRC=assets/images/monero.com_icon_1024.png ;;
+            *)            SRC=assets/images/cakewallet_icon_1024.png ;;
+          esac
+          test -s "$SRC"
+
+          DEST=ios/Runner/Assets.xcassets/AppIcon.appiconset
+          mkdir -p "$DEST"
+          sips -s format jpeg -s formatOptions best "$SRC" --out "$RUNNER_TEMP/icon.jpg"
+          sips -s format png "$RUNNER_TEMP/icon.jpg" --out "$DEST/Icon-1024.png"
+
+          cat > "$DEST/Contents.json" <<'JSONEOF'
+          {
+            "images" : [
+              {
+                "filename" : "Icon-1024.png",
+                "idiom" : "universal",
+                "platform" : "ios",
+                "size" : "1024x1024"
+              }
+            ],
+            "info" : { "version" : 1, "author" : "xcode" }
+          }
+          JSONEOF
+
+          ls -la "$DEST"
+          sips -g pixelWidth -g pixelHeight -g hasAlpha "$DEST/Icon-1024.png"
+
       - name: CocoaPods
         working-directory: ios
         run: pod install --repo-update
