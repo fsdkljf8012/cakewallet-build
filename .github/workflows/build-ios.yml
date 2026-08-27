@@ -146,13 +146,6 @@ jobs:
           ./build_mwebd.sh
           ./build_decred.sh
 
-      - name: Link native libraries
-        working-directory: scripts/ios
-        run: |
-          set -eux
-          source ./app_env.sh "$APP_IOS_TYPE"
-          ./setup.sh
-
       # Writes Info.plist, sets the bundle id, generates pubspec.yaml and runs
       # tool/configure.dart for the coin set.
       - name: Configure app
