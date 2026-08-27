@@ -20,11 +20,7 @@ dev_dependencies:
     sdk: flutter
   build_runner: ^2.15.0
   mobx_codegen: ^2.7.7
-  # 20.x needs Dart >=3.8.0; the Flutter this project pins in
-  # scripts/linux/.fvmrc (3.27.4) ships Dart 3.6.2. 19.0.0 is the
-  # newest release that supports 3.4+, and the config here uses only
-  # options that have been stable across both.
-  ffigen: 19.0.0
+  ffigen: ^20.1.1
   hive: ^2.2.3
 
 ffigen:

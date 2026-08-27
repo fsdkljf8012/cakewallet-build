@@ -34,11 +34,18 @@ jobs:
       - name: Make scripts executable
         run: find . -type f -name "*.sh" -exec chmod +x {} +
 
-      # Pinned to what the project pins in scripts/linux/.fvmrc. A newer
-      # Flutter fails on the generated code, and the error does not say so.
+      # NOT what scripts/linux/.fvmrc says. That file pins 3.27.4, which ships
+      # Dart 3.6.2, and this source cannot build on it: cw_zcash declares
+      # sdk ^3.8.0 and tool/configure.dart adds cw_zcash to the pubspec for
+      # every --zcash build, which cakewallet is. cw_custom_lints asks for
+      # >=3.9.0. Several packages also pull dependencies that need >=3.7.0
+      # (mobx_codegen) and >=3.8.0 (ffigen 20.x).
+      #
+      # 3.35.7 ships Dart 3.9.2, which satisfies every constraint in the tree.
+      # The .fvmrc is stale, and it lives under scripts/linux.
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.27.4
+          flutter-version: 3.35.7
           channel: stable
           cache: true
 
