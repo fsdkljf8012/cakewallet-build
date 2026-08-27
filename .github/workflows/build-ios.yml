@@ -181,6 +181,35 @@ jobs:
           ./build_mwebd.sh
           ./build_decred.sh
 
+      # build_mwebd.sh ends by regenerating the mweb FFI bindings, and it
+      # silently produces an empty file:
+      #
+      #   [INFO] : Input Headers: []
+      #   [INFO] : Finished, Bindings generated in lib/generated_bindings.g.dart
+      #
+      # so mweb_ffi.dart then fails to compile with "MWebFlutter isn't a type".
+      # ffigen exits 0 on an empty header list, so set -e does not catch it.
+      #
+      # Two bugs in that script conspire. Its sed looks for
+      # ".../arm64-v8a/mweb.h" while ffigen_config.yaml says "libmweb.h", so
+      # the substitution never matches; and the following "mv $CONFIG.bak
+      # $CONFIG" restores the original file, which would have undone the edit
+      # anyway. ffigen is left reading the Android header path, which holds
+      # only a .gitkeep in this source.
+      #
+      # Point it at the header build_mwebd.sh actually produced and rerun.
+      - name: Regenerate mweb FFI bindings
+        working-directory: cw_mweb
+        run: |
+          set -eux
+          HDR="ios/Mwebd.xcframework/ios-arm64/Mwebd.framework/Headers/Mwebd.h"
+          test -s "$HDR"
+          sed -i.orig "s|^ *- .*libmweb\.h.*|    - '$HDR'|" ffigen_config.yaml
+          cat ffigen_config.yaml
+          dart run ffigen --config ffigen_config.yaml
+          grep -q "class MWebFlutter" lib/generated_bindings.g.dart
+          echo "MWebFlutter generated OK"
+
       - name: Fetch prebuilt reown
         working-directory: scripts
         run: |
@@ -214,6 +243,28 @@ jobs:
           set -eux
           source ./app_env.sh "$APP_IOS_TYPE"
           ./app_config.sh
+
+      # Every .secrets.g.dart is generated, and none ship in the source, so
+      # the Dart compile fails on 62 undefined names -- etherScanApiKey,
+      # moralisApiKey, walletSalt and so on. Cake's CI injects them from
+      # GitHub secrets in reusable-build.yml; this repo has none of those
+      # keys, and does not need working exchange or block-explorer APIs.
+      #
+      # tool/generate_new_secrets.dart is the project's own generator. It
+      # writes every name the code references: random hex for the salts and
+      # keys, empty strings for the third-party API keys. Everything is
+      # emitted as a String, so nothing is left mistyped.
+      #
+      # cw_core imports no secrets but Cake's CI touches the file, so match
+      # that rather than find out later.
+      - name: Generate secrets
+        run: |
+          set -eux
+          dart run tool/generate_new_secrets.dart
+          touch cw_core/lib/.secrets.g.dart
+          for f in lib cw_evm/lib cw_solana/lib cw_nano/lib cw_tron/lib cw_bitcoin/lib; do
+            echo "== $f/.secrets.g.dart: $(wc -l < "$f/.secrets.g.dart") consts"
+          done
 
       # This mirrors reusable-build.yml, which is what Cake actually runs.
       # Our old single "dart run build_runner build" at the repo root was not
