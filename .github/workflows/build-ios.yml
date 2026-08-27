@@ -20,6 +20,9 @@ jobs:
       # the commit prepare_moneroc.sh checks out -- the note in that file names
       # this exact release, which is what it is there for.
       MONEROC_RELEASE: v0.18.4.6-RC2
+      # Likewise for torch, named in the comment at the top of
+      # scripts/prepare_torch.sh and used by Cake's own lint workflow.
+      TORCH_RELEASE: v1.0.17
 
     steps:
       - uses: actions/checkout@v4
@@ -93,14 +96,41 @@ jobs:
           echo "== what gen_framework.sh will find =="
           ls -la "$DEST/aarch64-apple-ios" "$DEST/aarch64-apple-ios-simulator"
 
-      # build_all.sh minus the Monero compile: torch, then the frameworks built
-      # from the prebuilt dylibs, then the two Go libraries.
+      # Same story as monero_c, different library. build_torch.sh clones
+      # simplybs, a bootstrap build system that compiles its own toolchain --
+      # its own make, bash, autoconf -- before it builds Tor. On the macos-14
+      # runner its bootstrapped dash segfaults while configuring GNU make, so
+      # the build system fails to build its own tools and never reaches Tor.
+      #
+      # torch_dart publishes the finished package, and prepare_torch.sh names
+      # this exact release in a comment for that purpose. The tarball carries
+      # ios/LibTorch.xcframework with both the device and simulator slices,
+      # which is what build.sh would have produced.
+      #
+      # The pinned commit is 20 commits ahead of this tag, but every one of
+      # them touches only build tooling (build.sh, create-xcframework.sh, the
+      # release workflow). No Dart and no C source differs, so the published
+      # package is what the pinned commit builds.
+      - name: Fetch prebuilt torch
+        working-directory: scripts
+        run: |
+          set -eux
+          curl -sSL -o torch_dart.tar.gz             "https://github.com/MrCyjaneK/torch_dart/releases/download/${TORCH_RELEASE}/torch_dart-${TORCH_RELEASE}.tar.gz"
+          rm -rf torch_dart
+          mkdir torch_dart
+          tar -xzf torch_dart.tar.gz -C torch_dart
+          rm torch_dart.tar.gz
+
+          echo "== the framework the pods will link =="
+          ls -la torch_dart/ios/LibTorch.xcframework
+
+      # What is left of build_all.sh: the frameworks wrapped around the
+      # prebuilt dylibs, then the two Go libraries.
       - name: Build remaining native libraries
         working-directory: scripts/ios
         run: |
           set -eux
           source ./app_env.sh "$APP_IOS_TYPE"
-          ./build_torch.sh
           ./gen_framework.sh
           ./build_mwebd.sh
           ./build_decred.sh
