@@ -262,8 +262,27 @@ jobs:
           set -eux
           dart run tool/generate_new_secrets.dart
           touch cw_core/lib/.secrets.g.dart
+
+          # import_secrets_config.dart declares bitcoinConfigPath and
+          # bitcoinOutputPath and then never uses them, so cw_bitcoin is the
+          # one package it does not write, and bitcoin_wallet.dart fails on
+          # breezApiKey. Cake's CI echoes that key in by hand for the same
+          # reason. Write it from the config the generator does produce, so
+          # this keeps working if bitcoinSecrets ever grows.
+          python3 - <<'PYEOF'
+          import json
+          cfg = json.load(open('tool/.bitcoin-secrets-config.json'))
+          with open('cw_bitcoin/lib/.secrets.g.dart', 'w') as f:
+              for k, v in cfg.items():
+                  print("const %s = '%s';" % (k, v), file=f)
+          print('wrote', len(cfg), 'consts to cw_bitcoin')
+          PYEOF
+
+          # A bare "wc -l" inside an echo cannot fail the step, which is how
+          # the missing cw_bitcoin file slipped through last time. Assert.
           for f in lib cw_evm/lib cw_solana/lib cw_nano/lib cw_tron/lib cw_bitcoin/lib; do
-            echo "== $f/.secrets.g.dart: $(wc -l < "$f/.secrets.g.dart") consts"
+            test -s "$f/.secrets.g.dart" || { echo "EMPTY OR MISSING: $f/.secrets.g.dart"; exit 1; }
+            echo "$f: $(wc -l < "$f/.secrets.g.dart") consts"
           done
 
       # This mirrors reusable-build.yml, which is what Cake actually runs.
