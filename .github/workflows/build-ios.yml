@@ -23,6 +23,14 @@ jobs:
       # Likewise for torch, named in the comment at the top of
       # scripts/prepare_torch.sh and used by Cake's own lint workflow.
       TORCH_RELEASE: v1.0.17
+      # pubspec_base.yaml takes reown_walletkit from
+      # scripts/reown_flutter/packages/reown_walletkit, which does not ship in
+      # the source. prepare_reown.sh clones and then runs generate_all.sh;
+      # this release is that work already done, and is what lint.yml fetches.
+      REOWN_RELEASE: v0.0.4
+      # cw_bitcoin, cw_evm and pubspec_base all take bitbox_flutter from
+      # scripts/bitbox_flutter. Pinned in scripts/build_bitbox_flutter.sh.
+      BITBOX_COMMIT: 5a6e6dd388ef64003f86094af80d5453518b601d
 
     steps:
       - uses: actions/checkout@v4
@@ -145,6 +153,31 @@ jobs:
           ./gen_framework.sh
           ./build_mwebd.sh
           ./build_decred.sh
+
+      - name: Fetch prebuilt reown
+        working-directory: scripts
+        run: |
+          set -eux
+          curl -sSL -o reown_flutter.tar.gz             "https://github.com/cake-tech/reown_flutter/releases/download/${REOWN_RELEASE}/reown_flutter-${REOWN_RELEASE}.tar.gz"
+          rm -rf reown_flutter
+          mkdir reown_flutter
+          tar -xzf reown_flutter.tar.gz -C reown_flutter
+          rm reown_flutter.tar.gz
+          ls -d reown_flutter/packages/reown_walletkit
+
+      # Only the Dart package is needed here. build_bitbox_flutter.sh also runs
+      # build_bindings.sh, which is "gomobile bind -target=android" and builds
+      # api.aar -- Android only. The iOS side is ios/bitbox_flutter.podspec,
+      # which is plain source files with no vendored framework.
+      - name: Prepare bitbox_flutter
+        working-directory: scripts
+        run: |
+          set -eux
+          rm -rf bitbox_flutter
+          git clone https://github.com/konstantinullrich/bitbox_flutter
+          cd bitbox_flutter
+          git checkout "$BITBOX_COMMIT"
+          ls ios/bitbox_flutter.podspec pubspec.yaml
 
       # Writes Info.plist, sets the bundle id, generates pubspec.yaml and runs
       # tool/configure.dart for the coin set.
