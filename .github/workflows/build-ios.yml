@@ -34,18 +34,18 @@ jobs:
       - name: Make scripts executable
         run: find . -type f -name "*.sh" -exec chmod +x {} +
 
-      # NOT what scripts/linux/.fvmrc says. That file pins 3.27.4, which ships
-      # Dart 3.6.2, and this source cannot build on it: cw_zcash declares
-      # sdk ^3.8.0 and tool/configure.dart adds cw_zcash to the pubspec for
-      # every --zcash build, which cakewallet is. cw_custom_lints asks for
-      # >=3.9.0. Several packages also pull dependencies that need >=3.7.0
-      # (mobx_codegen) and >=3.8.0 (ffigen 20.x).
+      # Cake's own CI runs this image:
+      #   ghcr.io/cake-tech/cake_wallet:debian13-flutter3.41.9-ndkr28-go1.24.1-...
+      # (.github/workflows/reusable-build.yml, lint.yml, pr_test_build_linux.yml)
+      # so 3.41.9 is the version this source is actually built with.
       #
-      # 3.35.7 ships Dart 3.9.2, which satisfies every constraint in the tree.
-      # The .fvmrc is stale, and it lives under scripts/linux.
+      # scripts/linux/.fvmrc says 3.27.4 and is stale. The committed lockfiles
+      # settle it: cw_decred and cw_wownero record dart ">=3.10.0", which rules
+      # out 3.27.4 (Dart 3.6.2) and 3.35.7 (Dart 3.9.2) alike. 3.41.9 ships
+      # Dart 3.12.2.
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.35.7
+          flutter-version: 3.41.9
           channel: stable
           cache: true
 
@@ -155,11 +155,39 @@ jobs:
           source ./app_env.sh "$APP_IOS_TYPE"
           ./app_config.sh
 
+      # This mirrors reusable-build.yml, which is what Cake actually runs.
+      # Our old single "dart run build_runner build" at the repo root was not
+      # enough: model_generator.sh runs build_runner inside each cw_* package
+      # too, and nothing in this tree is committed pre-generated (0 .g.dart
+      # files anywhere).
+      #
+      # Run it synchronously rather than with the "async" argument Cake passes.
+      # model_generator.sh backgrounds every package with & and never waits, so
+      # the root build_runner can start while packages are still generating.
+      # That is a race worth avoiding; the repo is public, so the extra minutes
+      # are free.
       - name: Generate Dart code
         run: |
           set -eux
           flutter pub get
-          dart run build_runner build --delete-conflicting-outputs
+          flutter clean
+          rm -rf .dart_tool
+          rm -f pubspec.lock
+          flutter pub get
+          ./model_generator.sh
+
+      # 31 .arb files in res/values, and lib/generated is empty in the source.
+      # i18n.dart and locales.dart do not exist until this runs.
+      - name: Generate localization
+        run: dart run tool/generate_localization.dart
+
+      # Not cosmetic. pubspec_base.yaml declares assets/new-ui/ plus 20
+      # subdirectories, and 19 of them do not exist in the source -- Flutter
+      # fails outright on a declared asset directory that is missing. This
+      # compiles 354 svgs out of res/pictures into assets/new-ui, creating
+      # them. cake_image_widget.dart loads the .vec files it produces.
+      - name: Compile graphics
+        run: ./compile_graphics.sh
 
       - name: CocoaPods
         working-directory: ios
