@@ -42,10 +42,14 @@ jobs:
           channel: stable
           cache: true
 
-      # decred and mwebd are Go. Without this they fail late.
+      # decred and mwebd are Go. cw_mweb/go/go.mod requires 1.24.1 and
+      # build_mwebd.sh's own --install branch says "install go > 1.24";
+      # decred's libwallet asks for 1.22, which 1.24 satisfies. Go would
+      # auto-download a newer toolchain on demand, but pinning it here keeps
+      # that out of the middle of a cgo cross-compile.
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.24"
 
       - name: Show toolchain
         run: |
