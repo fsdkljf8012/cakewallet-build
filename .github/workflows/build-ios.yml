@@ -66,6 +66,33 @@ jobs:
         with:
           go-version: "1.24"
 
+      # cw_zcash pulls zkool from git, and zkool builds Rust during the Xcode
+      # phase via Cargokit, which shells out to rustup. The runner ships rustup
+      # but the build died inside it:
+      #
+      #   component download failed for rust-std-aarch64-apple-ios: could not
+      #   rename 'downloaded' file from ~/.rustup/downloads/....partial
+      #   No such file or directory (os error 2)
+      #
+      # -- rustup's working directories were missing. Installing the target
+      # here means Cargokit finds it already present and never runs that
+      # download, and if rustup is broken beyond a mkdir we find out in this
+      # cheap step rather than 40 minutes into the build.
+      - name: Rust toolchain for zkool
+        run: |
+          set -eux
+          mkdir -p "$HOME/.rustup/downloads" "$HOME/.rustup/tmp"
+          if ! rustup target add aarch64-apple-ios; then
+            echo "rustup unhealthy, reinstalling"
+            rm -rf "$HOME/.rustup"
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs               | sh -s -- -y --no-modify-path --default-toolchain stable
+            . "$HOME/.cargo/env"
+            rustup target add aarch64-apple-ios
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup target list --installed
+          rustc --version
+
       - name: Show toolchain
         run: |
           flutter --version
