@@ -38,6 +38,16 @@ jobs:
         with:
           go-version: "1.22"
 
+      # Every .sh in this tree lost its executable bit: the source arrived as a
+      # Windows zip and was committed from Windows, so git recorded mode 644 and
+      # the runner refuses to exec them. The scripts also call each other
+      # (build_all.sh runs build_torch.sh, app_config.sh runs app_icon.sh), so
+      # this has to cover the whole tree rather than just the entry points.
+      - name: Make scripts executable
+        run: |
+          find . -type f -name "*.sh" -exec chmod +x {} +
+          ls -l scripts/ios/build_all.sh
+
       - name: Show toolchain
         run: |
           flutter --version
