@@ -1,0 +1,69 @@
+﻿name: Probe
+
+# Throwaway diagnostic. Answers two questions in about five minutes so the
+# real build does not have to be used as a guessing instrument:
+#
+#   1. Does monero_c's prebuilt release-bundle.zip contain iOS libraries?
+#      If it does, the whole Monero compile can be skipped and the Xcode
+#      download problem disappears with it.
+#   2. What Xcode and iOS SDK does the runner already have? If the depends
+#      system can be pointed at those, that is the other way out.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode and SDKs already on the runner
+        run: |
+          echo "== xcodebuild =="
+          xcodebuild -version
+          echo "== DEVELOPER_DIR =="
+          xcode-select -p
+          echo "== iOS SDK =="
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphoneos --show-sdk-version
+          echo "== every Xcode installed =="
+          ls -1 /Applications | grep -i xcode || true
+
+      - name: Which monero_c commit this source pins
+        run: |
+          grep -n 'git checkout' scripts/prepare_moneroc.sh
+          grep -n 'release-bundle' scripts/prepare_moneroc.sh || true
+
+      - name: Fetch the prebuilt bundle and look inside
+        run: |
+          set -eux
+          URL=https://github.com/MrCyjaneK/monero_c/releases/download/v0.18.4.6-RC2/release-bundle.zip
+          curl -sSL -o bundle.zip "$URL"
+          ls -lh bundle.zip
+
+          echo "== top two levels =="
+          unzip -Z1 bundle.zip | awk -F/ '{ if (NF>2) print $1"/"$2; else print $0 }' | sort -u | head -60
+
+          echo "== anything mentioning apple or ios =="
+          unzip -Z1 bundle.zip | grep -iE 'apple|ios' | head -40 || echo "NOTHING iOS IN THE BUNDLE"
+
+          echo "== .a / .dylib / .so counts by platform folder =="
+          unzip -Z1 bundle.zip | grep -E '\.(a|dylib|so)$' | awk -F/ '{print $1"/"$2}' | sort | uniq -c | sort -rn | head -30
+
+      - name: What the depends system expects for an SDK
+        run: |
+          set -eux
+          ./scripts/prepare_moneroc.sh || true
+          if [ -d scripts/monero_c/contrib/depends ]; then
+            echo "== SDK-related lines in the depends Makefile =="
+            grep -rniE 'sdk|xcode|xip|sbs-build' scripts/monero_c/contrib/depends/Makefile | head -40 || true
+            echo "== does an SDKs directory exist =="
+            ls -la scripts/monero_c/contrib/depends/SDKs 2>/dev/null || echo "no SDKs dir"
+            echo "== hosts/darwin or ios mk files =="
+            ls -1 scripts/monero_c/contrib/depends/hosts/ 2>/dev/null || true
+          else
+            echo "depends tree not present"
+          fi
