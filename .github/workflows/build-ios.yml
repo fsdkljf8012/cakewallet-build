@@ -1,0 +1,134 @@
+﻿name: Build iOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_type:
+        description: "Which app variant to build"
+        type: choice
+        default: cakewallet
+        options: [cakewallet, monero.com]
+
+jobs:
+  build:
+    runs-on: macos-14
+    # The native layer alone is 30-60 minutes on a cold cache. The default
+    # 6-hour job limit is plenty, but be explicit so a hung build dies rather
+    # than burning the month's minutes.
+    timeout-minutes: 180
+
+    env:
+      APP_IOS_TYPE: ${{ inputs.app_type }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned to what the project itself pins in scripts/linux/.fvmrc.
+      # A newer Flutter will fail on the generated code, not on anything you
+      # wrote, and the error will not say so.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.27.4
+          channel: stable
+          cache: true
+
+      # mwebd is Go. Without this the Litecoin MWEB step fails late, after
+      # you have already paid for the Monero build.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Show toolchain
+        run: |
+          flutter --version
+          go version
+          xcodebuild -version
+
+      # The expensive artifacts: static libs for Monero, Boost, OpenSSL,
+      # sodium, unbound, zmq. Keyed on the build scripts, so the cache only
+      # busts when the way they are built actually changes.
+      - name: Cache native libraries
+        id: nativecache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cw_shared_external/ios/External/ios/lib
+            cw_shared_external/ios/External/ios/include
+          key: cw-ios-native-${{ runner.os }}-${{ inputs.app_type }}-${{ hashFiles('scripts/ios/*.sh') }}
+
+      - name: Build native libraries
+        if: steps.nativecache.outputs.cache-hit != 'true'
+        working-directory: scripts/ios
+        run: |
+          set -eux
+          source ./app_env.sh "$APP_IOS_TYPE"
+          ./build_all.sh
+
+      # Fuses the per-library archives and links them into cw_monero,
+      # cw_haven and cw_zano where the FFI plugins expect them. Cheap, and it
+      # has to run even on a cache hit because it writes outside the cached
+      # directories.
+      - name: Link native libraries
+        working-directory: scripts/ios
+        run: |
+          set -eux
+          source ./app_env.sh "$APP_IOS_TYPE"
+          ./setup.sh
+
+      # Writes Info.plist, sets the bundle id, generates pubspec.yaml from
+      # pubspec_description.yaml, and runs tool/configure.dart for the coin
+      # set. This is also the step that decides the app's name and bundle id
+      # -- edit scripts/ios/app_env.sh if you are renaming.
+      - name: Configure app
+        working-directory: scripts/ios
+        run: |
+          set -eux
+          source ./app_env.sh "$APP_IOS_TYPE"
+          ./app_config.sh
+
+      - name: Generate Dart code
+        run: |
+          set -eux
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: CocoaPods
+        working-directory: ios
+        run: |
+          set -eux
+          pod install --repo-update
+
+      # No signing identity on a hosted runner, so the archive is built
+      # unsigned. Sideloadly or AltStore re-sign it with your own Apple ID at
+      # install time, which is what a free developer account allows anyway.
+      - name: Build (unsigned)
+        run: flutter build ios --release --no-codesign
+
+      # An .ipa is a zip with the .app inside a folder called Payload. That
+      # is the whole format; there is nothing else to it.
+      - name: Package IPA
+        run: |
+          set -eux
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -R Runner.app Payload/
+          zip -qry "$RUNNER_TEMP/app-unsigned.ipa" Payload
+          ls -lh "$RUNNER_TEMP/app-unsigned.ipa"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipa-unsigned
+          path: ${{ runner.temp }}/app-unsigned.ipa
+          retention-days: 14
+
+      # When something breaks in the native step, the useful output is in
+      # these logs rather than in the job output.
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            cw_shared_external/ios/External/ios/sources/**/*.log
+            ios/Podfile.lock
+          if-no-files-found: ignore
