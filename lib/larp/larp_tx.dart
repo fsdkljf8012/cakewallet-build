@@ -20,6 +20,7 @@ class LarpTransactionInfo extends TransactionInfo {
     Money? fee,
     String? to,
     String? from,
+    int? height,
     int confirmations = 0,
     bool isPending = false,
   }) {
@@ -29,6 +30,7 @@ class LarpTransactionInfo extends TransactionInfo {
     this.fee = fee;
     this.direction = direction;
     this.date = date;
+    this.height = height;
     this.isPending = isPending;
     this.confirmations = confirmations;
     this.to = to;
@@ -162,7 +164,9 @@ class LarpTxGenerator {
     return List.generate(length, (_) => chars[_rand(chars.length)]).join();
   }
 
-  /// Public so LarpPendingTransaction can borrow the chain-shaped format.
+  /// Public so callers outside can borrow the chain-shaped formats.
+  String newAddress() => _address();
+
   String newTxId() => _txId();
 
   String _txId() {
@@ -218,6 +222,7 @@ class LarpTxGenerator {
         currency: currency,
         direction: direction,
         date: date,
+        height: LarpHeights.heightFor(currency, date),
         fee: Money(_scale(value, 0.0004 + _randFraction() * 0.0008), currency),
         to: direction == TransactionDirection.outgoing ? _address() : null,
         from: direction == TransactionDirection.incoming ? _address() : null,
@@ -325,6 +330,74 @@ class LarpPendingTransaction with PendingTransaction {
 
   @override
   Future<Map<String, String>> commitUR() async => <String, String>{};
+}
+
+/// Plausible block heights, so the details sheet reads like a real one.
+///
+/// Anchored per chain to a known height at a known instant and extrapolated
+/// by that chain's block interval, so heights rise with the date and the
+/// spacing between two transactions matches the time between them.
+class LarpHeights {
+  const LarpHeights._();
+
+  /// Reference instant for every anchor below. The time of day matters: a
+  /// Monero block is two minutes, so anchoring to midnight instead of the
+  /// real timestamp puts every height out by most of a day.
+  static final DateTime _anchorDate = DateTime.utc(2026, 7, 24, 23, 53);
+
+  static int _anchorHeight(Currency currency) {
+    switch ((currency.tag ?? currency.symbol).toUpperCase()) {
+      // Taken from a real transaction: height 3725392 on 24 July 2026.
+      case 'XMR':
+        return 3725392;
+      case 'WOW':
+        return 1105000;
+      case 'ZANO':
+        return 3180000;
+      case 'BTC':
+        return 958000;
+      case 'BCH':
+        return 918000;
+      case 'LTC':
+        return 3120000;
+      case 'DOGE':
+        return 6180000;
+      case 'DASH':
+        return 2340000;
+      case 'DCR':
+        return 1010000;
+      case 'ZEC':
+        return 3210000;
+      case 'ETH':
+        return 24100000;
+      case 'POL':
+        return 78500000;
+      case 'BSC':
+      case 'BNB':
+        return 62400000;
+      case 'BASE':
+        return 34600000;
+      case 'ARB':
+      case 'ARBITRUM':
+        return 391000000;
+      case 'AVAXC':
+        return 62800000;
+      case 'TRX':
+        return 78900000;
+      case 'SOL':
+        return 385000000;
+      default:
+        return 1000000;
+    }
+  }
+
+  static int? heightFor(Currency currency, DateTime when) {
+    final block = LarpConfirmations.blockSeconds(currency);
+    if (block <= 0) return null;
+    final delta = when.toUtc().difference(_anchorDate).inSeconds ~/ block;
+    final height = _anchorHeight(currency) + delta;
+    return height > 0 ? height : null;
+  }
 }
 
 /// Confirmation timing for a send, so it behaves like a real one.

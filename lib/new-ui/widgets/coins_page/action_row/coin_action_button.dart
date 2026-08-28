@@ -10,11 +10,13 @@ class CoinActionButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.action,
+    this.onLongPress,
   });
 
   final Widget icon;
   final String label;
   final VoidCallback action;
+  final VoidCallback? onLongPress;
 
   static const sizeFactor = 0.16;
 
@@ -49,15 +51,25 @@ class CoinActionButton extends StatelessWidget {
                   width: 1,
                 ),
               ),
-              child: IconButton(
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                onPressed: () {
-                  HapticFeedback.mediumImpact();
-                  action();
-                },
-                icon: ExcludeSemantics(child: icon),
-                color: Theme.of(context).colorScheme.primary,
+              // IconButton has no long-press of its own, so the gesture is
+              // wrapped around it.
+              child: GestureDetector(
+                onLongPress: onLongPress == null
+                    ? null
+                    : () {
+                        HapticFeedback.heavyImpact();
+                        onLongPress!();
+                      },
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    HapticFeedback.mediumImpact();
+                    action();
+                  },
+                  icon: ExcludeSemantics(child: icon),
+                  color: Theme.of(context).colorScheme.primary,
+                ),
               ),
             ),
             Padding(

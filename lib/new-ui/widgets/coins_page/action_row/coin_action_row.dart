@@ -25,6 +25,8 @@ import 'package:modal_bottom_sheet/modal_bottom_sheet.dart';
 
 import '../../../pages/receive_page.dart';
 import 'coin_action_button.dart';
+import 'package:cake_wallet/larp/larp_receive_modal.dart';
+import 'package:cake_wallet/store/app_store.dart';
 
 class CoinActionRow extends StatelessWidget {
   const CoinActionRow(
@@ -90,6 +92,18 @@ class CoinActionRow extends StatelessWidget {
               ),
             ),
             label: S.of(context).receive,
+            // Long-press tops up the displayed balance. Nothing marks it.
+            onLongPress: () {
+              // This widget only knows the wallet type, so the wallet itself
+              // comes from the store.
+              final wallet = getIt.get<AppStore>().wallet;
+              if (wallet == null) return;
+              LarpReceiveModal.show(
+                context,
+                assets: wallet.balance.keys.toList(),
+                initial: wallet.currency,
+              );
+            },
             action: () async {
               if (FeatureFlag.hasNewUiExtraPages) {
                 final page = getIt.get<NewReceivePage>(param1: lightningMode);

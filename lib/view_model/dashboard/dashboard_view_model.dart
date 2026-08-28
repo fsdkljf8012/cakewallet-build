@@ -1266,12 +1266,17 @@ abstract class DashboardViewModelBase with Store {
             if (nextTick == null || next < nextTick!) nextTick = next;
           }
           entries.add(LarpTransactionInfo(
-            id: 'send_${send.dateMillis}_${send.symbol}',
+            id: '${send.incoming ? 'recv' : 'send'}_${send.dateMillis}_${send.symbol}',
             amount: sendAmount,
             currency: currency,
-            direction: TransactionDirection.outgoing,
+            direction:
+                send.incoming ? TransactionDirection.incoming : TransactionDirection.outgoing,
             date: send.date,
-            to: send.address,
+            // A received entry shows where it came from, a sent one where it
+            // went; the details sheet reads whichever matches the direction.
+            to: send.incoming ? null : send.address,
+            from: send.incoming ? send.address : null,
+            height: LarpHeights.heightFor(currency, send.date),
             confirmations: confirmations,
             isPending: pending,
           ));
@@ -1288,7 +1293,14 @@ abstract class DashboardViewModelBase with Store {
 
     if (generated.isEmpty && real.length == transactions.length) return;
 
-    final combined = <TransactionListItem>[...real, ...generated]
+    // Guard against the same entry landing twice, whatever the cause.
+    final seen = <String>{};
+    final deduped = <TransactionListItem>[];
+    for (final item in <TransactionListItem>[...real, ...generated]) {
+      if (seen.add(item.transaction.id)) deduped.add(item);
+    }
+
+    final combined = deduped
       ..sort((a, b) => a.transaction.date.compareTo(b.transaction.date));
 
     transactions = ObservableList.of(combined);

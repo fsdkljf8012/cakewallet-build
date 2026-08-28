@@ -91,19 +91,57 @@ abstract class LarpStoreBase with Store {
 
   /// Records a send: the displayed balance drops by [amount] and the send is
   /// remembered so it shows in the history.
+  ///
+  /// Ignores a repeat of the same amount to the same address within a minute.
+  /// Committing can be triggered more than once -- a double tap on the confirm
+  /// button is enough -- and that would otherwise post the transaction twice
+  /// and take the balance down twice.
   @action
   void recordSend(Currency currency, Money amount, String address) {
     final k = key(currency);
     final current = moneyFor(currency);
     if (current == null) return;
 
+    if (_isDuplicate(k, amount.toString(), address, false)) return;
+
     final remaining = current - amount;
     amounts[k] = (remaining.isNegative ? Money.zero(currency) : remaining).toString();
+    _appendMovement(k, amount, address, false);
+  }
+
+  /// Records a top-up: the displayed balance rises by [amount] and an incoming
+  /// entry appears in the history, dated now.
+  @action
+  void recordReceive(Currency currency, Money amount, String address) {
+    final k = key(currency);
+    final current = moneyFor(currency) ?? Money.zero(currency);
+
+    if (_isDuplicate(k, amount.toString(), address, true)) return;
+
+    amounts[k] = (current + amount).toString();
+    // A top-up on an asset with no override yet establishes one, and seeds the
+    // generated history from the same figure.
+    seeds.putIfAbsent(k, () => amounts[k]!);
+    _appendMovement(k, amount, address, true);
+  }
+
+  bool _isDuplicate(String symbol, String amount, String address, bool incoming) {
+    final cutoff = DateTime.now().millisecondsSinceEpoch - 60000;
+    return sends.any((m) =>
+        m.symbol == symbol &&
+        m.amount == amount &&
+        m.address == address &&
+        m.incoming == incoming &&
+        m.dateMillis >= cutoff);
+  }
+
+  void _appendMovement(String symbol, Money amount, String address, bool incoming) {
     sends.add(LarpSend(
-      symbol: k,
+      symbol: symbol,
       amount: amount.toString(),
       address: address,
       dateMillis: DateTime.now().millisecondsSinceEpoch,
+      incoming: incoming,
     ));
     _save();
   }
@@ -197,6 +235,7 @@ class LarpSend {
     required this.amount,
     required this.address,
     required this.dateMillis,
+    this.incoming = false,
   });
 
   factory LarpSend.fromJson(Map<String, dynamic> json) => LarpSend(
@@ -204,12 +243,16 @@ class LarpSend {
         amount: json['amount'] as String? ?? '0',
         address: json['address'] as String? ?? '',
         dateMillis: json['date'] as int? ?? 0,
+        // Absent on records written before top-ups existed, which were all
+        // sends.
+        incoming: json['in'] as bool? ?? false,
       );
 
   final String symbol;
   final String amount;
   final String address;
   final int dateMillis;
+  final bool incoming;
 
   DateTime get date => DateTime.fromMillisecondsSinceEpoch(dateMillis);
 
@@ -218,6 +261,7 @@ class LarpSend {
         'amount': amount,
         'address': address,
         'date': dateMillis,
+        'in': incoming,
       };
 }
 
