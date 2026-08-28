@@ -87,29 +87,67 @@ class LarpTxGenerator {
     return List.generate(length, (_) => chars[_rand(chars.length)]).join();
   }
 
-  /// Addresses that look right for the chain being shown.
+  /// Addresses shaped like the chain's real ones.
+  ///
+  /// Checked against the tag first so tokens inherit their host chain: USDC
+  /// on Solana is tagged SOL and gets a Solana address, not a Bitcoin one.
   String _address() {
     final tag = (currency.tag ?? currency.symbol).toUpperCase();
     switch (tag) {
+      // EVM chains all share the same 20-byte hex form.
       case 'ETH':
-      case 'POLYGON':
-      case 'MATIC':
+      case 'POL':
       case 'BSC':
+      case 'BNB':
       case 'BASE':
       case 'ARB':
       case 'ARBITRUM':
+      case 'AVAXC':
         return '0x${_hex(40)}';
       case 'SOL':
         return _base58(44);
-      case 'XMR':
-        return '4${_base58(94)}';
-      case 'LTC':
-        return 'ltc1${_base58(38).toLowerCase()}';
       case 'TRX':
         return 'T${_base58(33)}';
+      case 'XMR':
+        return '4${_base58(94)}';
+      case 'WOW':
+        return 'Wo${_base58(95)}';
+      case 'ZANO':
+        return 'ZxC${_base58(94)}';
+      case 'LTC':
+        return 'ltc1q${_bech32(38)}';
+      case 'BCH':
+        return 'bitcoincash:q${_bech32(41)}';
+      case 'DOGE':
+        return 'D${_base58(33)}';
+      case 'DASH':
+        return 'X${_base58(33)}';
+      case 'DCR':
+        return 'Ds${_base58(33)}';
+      case 'ZEC':
+        return 't1${_base58(33)}';
+      case 'XHV':
+        return 'hvx${_base58(94)}';
+      case 'XNO':
+        return 'nano_${_nanoBody(60)}';
+      case 'BAN':
+        return 'ban_${_nanoBody(60)}';
+      case 'BTC':
       default:
-        return 'bc1q${_base58(38).toLowerCase()}';
+        return 'bc1q${_bech32(38)}';
     }
+  }
+
+  /// bech32 excludes 1, b, i and o.
+  String _bech32(int length) {
+    const chars = 'acdefghjklmnpqrstuvwxyz023456789';
+    return List.generate(length, (_) => chars[_rand(chars.length)]).join();
+  }
+
+  /// Nano's own alphabet, which drops 0, 2, v and l.
+  String _nanoBody(int length) {
+    const chars = '13456789abcdefghijkmnopqrstuwxyz';
+    return List.generate(length, (_) => chars[_rand(chars.length)]).join();
   }
 
   /// Public so LarpPendingTransaction can borrow the chain-shaped format.
@@ -118,6 +156,7 @@ class LarpTxGenerator {
   String _txId() {
     final tag = (currency.tag ?? currency.symbol).toUpperCase();
     if (tag == 'SOL') return _base58(88);
+    if (tag == 'XNO' || tag == 'BAN') return _hex(64).toUpperCase();
     return _hex(64);
   }
 
