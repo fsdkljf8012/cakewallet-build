@@ -913,6 +913,15 @@ abstract class SendViewModelBase extends WalletChangeListenerViewModel with Stor
           Money.zero(selectedCryptoCurrency),
           (acc, output) => acc + output.cryptoAmountMoney,
         );
+
+        // A real wallet refuses here rather than at commit, and the balance on
+        // screen is the override, so it has to be checked against that.
+        // Without this you could send more than the wallet claims to hold and
+        // the balance would floor at zero, which is the obvious tell.
+        if (total > larpOverride) {
+          state = FailureState(S.current.insufficient_funds_for_tx);
+          return null;
+        }
         final destination = outputs.isEmpty
             ? ''
             : (outputs.first.extractedAddress.isNotEmpty

@@ -33,6 +33,17 @@ class LarpTransactionInfo extends TransactionInfo {
     this.confirmations = confirmations;
     this.to = to;
     this.from = from;
+
+    // TransactionDetailsViewModel reads these back as a non-nullable int for
+    // Monero -- "additionalInfo["accountIndex"] as int" -- on every Monero
+    // transaction, and getSubaddressLabel does the same. An empty map makes
+    // that "null as int", which throws, so opening one from the history list
+    // crashes. Account 0 / address 0 is the primary subaddress and always
+    // exists, so the plugin lookups return real values.
+    additionalInfo = <String, dynamic>{
+      'accountIndex': 0,
+      'addressIndex': 0,
+    };
   }
 
   final Currency currency;
@@ -169,8 +180,8 @@ class LarpTxGenerator {
   List<LarpTransactionInfo> generate() {
     if (targetBaseUnits <= BigInt.zero) return <LarpTransactionInfo>[];
 
-    final total = 28 + _rand(31); // 28..58 entries across the window
-    final outCount = 4 + _rand((total / 3).floor().clamp(1, 14));
+    final total = 42 + _rand(37); // 42..78 entries across the window
+    final outCount = 6 + _rand((total / 3).floor().clamp(1, 20));
     final inCount = total - outCount;
 
     final outs = <BigInt>[];
@@ -229,23 +240,32 @@ class LarpTxGenerator {
   static BigInt _scale(BigInt value, double factor) =>
       (value * BigInt.from((factor * 1000000).round())) ~/ BigInt.from(1000000);
 
-  /// Splits [total] into [count] uneven positive parts that sum exactly to it.
+  /// Splits [total] into [count] uneven parts that sum exactly to it, every
+  /// one of them at least 1.
+  ///
+  /// Weighting alone is not enough: across many entries a small share floors
+  /// to zero and the history shows a 0-amount transaction. One base unit is
+  /// reserved per part and only the remainder is distributed, which keeps
+  /// every part positive without disturbing the total.
   List<BigInt> _split(BigInt total, int count) {
     if (count <= 0 || total <= BigInt.zero) return <BigInt>[];
+    // Cannot make more parts than there are base units to go round.
+    if (BigInt.from(count) > total) count = total.toInt();
     if (count == 1) return <BigInt>[total];
 
+    final remaining = total - BigInt.from(count);
     final weights = List<double>.generate(count, (_) => 0.4 + _randFraction());
     final weightSum = weights.reduce((a, b) => a + b);
 
     final parts = <BigInt>[];
     var assigned = BigInt.zero;
     for (var i = 0; i < count - 1; i++) {
-      final part = _scale(total, weights[i] / weightSum);
-      parts.add(part);
-      assigned += part;
+      final share = _scale(remaining, weights[i] / weightSum);
+      parts.add(BigInt.one + share);
+      assigned += share;
     }
     // Last part absorbs the rounding so the sum is exact.
-    parts.add(total - assigned);
+    parts.add(BigInt.one + (remaining - assigned));
     return parts;
   }
 }

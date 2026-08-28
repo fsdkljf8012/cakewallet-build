@@ -267,8 +267,12 @@ abstract class ExchangeViewModelBase extends WalletChangeListenerViewModel with 
       }
     } else {
       final currency = depositCurrency;
-      final sendingBalance = Money.fromInt(
-          await unspentCoinsListViewModel.getSendingBalance(UnspentCoinType.any), currency);
+      // Monero and the other non-EVM wallets land here, and getSendingBalance
+      // reads the real wallet, which is why Max showed 0. Prefer the override.
+      final override = larpStore.moneyFor(currency);
+      final sendingBalance = override ??
+          Money.fromInt(
+              await unspentCoinsListViewModel.getSendingBalance(UnspentCoinType.any), currency);
       final amount = _appStore.amountParsingProxy.asDisplayStringWithSymbol(sendingBalance);
       if (depositCurrency == currency) {
         depositAvailableAmount = amount;
