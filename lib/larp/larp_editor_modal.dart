@@ -13,8 +13,10 @@ class LarpEditorModal extends StatefulWidget {
 
   final CryptoCurrency asset;
 
-  static Future<void> show(BuildContext context, CryptoCurrency asset) {
-    return showModalBottomSheet<void>(
+  /// Resolves to true when the amount was changed, so a caller that hid the
+  /// balance to get here can show it again and reveal the result.
+  static Future<bool?> show(BuildContext context, CryptoCurrency asset) {
+    return showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (_) => LarpEditorModal(asset: asset),
@@ -44,13 +46,13 @@ class _LarpEditorModalState extends State<LarpEditorModal> {
       return;
     }
     larpStore.setAmount(widget.asset, text);
-    Navigator.of(context).pop();
+    Navigator.of(context).pop(true);
   }
 
   void _clear() {
     larpStore.clear(widget.asset);
     _controller.clear();
-    Navigator.of(context).pop();
+    Navigator.of(context).pop(true);
   }
 
   @override

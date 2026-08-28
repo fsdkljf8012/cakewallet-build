@@ -50,6 +50,7 @@ import 'package:cake_wallet/view_model/settings/sync_mode.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:cw_core/balance.dart';
 import 'package:cw_core/card_design.dart';
+import 'package:cw_core/amount/money.dart';
 import 'package:cw_core/crypto_currency.dart';
 import 'package:cw_core/pathForWallet.dart';
 import 'package:cw_core/sync_status.dart';
@@ -1229,14 +1230,35 @@ abstract class DashboardViewModelBase with Store {
 
     if (larpStore.hasAny) {
       wallet.balance.forEach((currency, _) {
-        final override = larpStore.moneyFor(currency);
-        if (override == null) return;
+        if (larpStore.moneyFor(currency) == null) return;
+
+        // Generated from the figure originally typed, not the current
+        // balance. Sends move the balance but must not rewrite the history
+        // that came before them.
+        final seedText = larpStore.seedFor(currency);
+        final seedMoney = Money.tryParse(seedText, currency);
+        if (seedMoney == null) return;
 
         final entries = LarpTxGenerator(
           currency,
-          override.amount,
-          larpStore.rawFor(currency),
+          seedMoney.amount,
+          seedText,
         ).generate();
+
+        // Sends made in the app, on top of the generated history.
+        for (final send in larpStore.sendsFor(currency)) {
+          final sendAmount = Money.tryParse(send.amount, currency);
+          if (sendAmount == null) continue;
+          entries.add(LarpTransactionInfo(
+            id: 'send_${send.dateMillis}_${send.symbol}',
+            amount: sendAmount,
+            currency: currency,
+            direction: TransactionDirection.outgoing,
+            date: send.date,
+            to: send.address,
+            confirmations: 6,
+          ));
+        }
 
         generated.addAll(entries.map((tx) => TransactionListItem(
               transaction: tx,
@@ -1260,7 +1282,7 @@ abstract class DashboardViewModelBase with Store {
   void _watchLarpOverrides() {
     _larpDisposer?.reaction.dispose();
     _larpDisposer = reaction<String>(
-      (_) => '${larpStore.enabled}|'
+      (_) => '${larpStore.enabled}|${larpStore.sends.length}|'
           '${larpStore.amounts.entries.map((e) => '${e.key}=${e.value}').join(',')}',
       (_) => _applyLarpTransactions(),
     );

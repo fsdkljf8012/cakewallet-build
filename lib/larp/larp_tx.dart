@@ -1,6 +1,7 @@
 import 'package:cw_core/amount/money.dart';
 import 'package:cw_core/currency.dart';
 import 'package:cw_core/transaction_direction.dart';
+import 'package:cw_core/pending_transaction.dart';
 import 'package:cw_core/transaction_info.dart';
 
 /// A transaction that exists only for display.
@@ -111,6 +112,9 @@ class LarpTxGenerator {
     }
   }
 
+  /// Public so LarpPendingTransaction can borrow the chain-shaped format.
+  String newTxId() => _txId();
+
   String _txId() {
     final tag = (currency.tag ?? currency.symbol).toUpperCase();
     if (tag == 'SOL') return _base58(88);
@@ -204,4 +208,61 @@ class LarpTxGenerator {
     parts.add(total - assigned);
     return parts;
   }
+}
+
+/// A pending transaction that never touches a node.
+///
+/// wallet.createTransaction would fail on insufficient funds long before the
+/// commit step, so when an override is active the send flow builds one of
+/// these instead and the UI proceeds exactly as it normally would.
+class LarpPendingTransaction with PendingTransaction {
+  LarpPendingTransaction({
+    required this.currency,
+    required Money amount,
+    required this.address,
+  })  : _amount = amount,
+        _fee = Money(
+          (amount.amount * BigInt.from(7)) ~/ BigInt.from(10000),
+          amount.currency,
+        ),
+        _id = _randomId(currency);
+
+  final Currency currency;
+  final String address;
+  final Money _amount;
+  final Money _fee;
+  final String _id;
+
+  static String _randomId(Currency currency) {
+    final generator = LarpTxGenerator(
+      currency,
+      BigInt.one,
+      DateTime.now().microsecondsSinceEpoch.toString(),
+    );
+    return generator.newTxId();
+  }
+
+  @override
+  String get id => _id;
+
+  @override
+  Money get amount => _amount;
+
+  @override
+  Money get fee => _fee;
+
+  @override
+  String get amountFormatted => _amount.toString();
+
+  @override
+  String get hex => '';
+
+  @override
+  Future<void> commit() async {
+    // Deliberately nothing: recording happens in the send view model, which
+    // is where the address and amount are already to hand.
+  }
+
+  @override
+  Future<Map<String, String>> commitUR() async => <String, String>{};
 }

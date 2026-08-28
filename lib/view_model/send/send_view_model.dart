@@ -73,6 +73,8 @@ import 'package:hive/hive.dart';
 import 'package:mobx/mobx.dart';
 import 'package:cake_wallet/utils/token_utilities.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cake_wallet/larp/larp_tx.dart';
+import 'package:cake_wallet/larp/larp_store.dart';
 
 part 'send_view_model.g.dart';
 
@@ -899,7 +901,28 @@ abstract class SendViewModelBase extends WalletChangeListenerViewModel with Stor
         if (estimateTxAmountDouble <= 0) throw Exception('Amount must be greater than 0');
       }
 
-      pendingTransaction = await wallet.createTransaction(_credentials(provider));
+      // With an override in play the wallet has no real funds to spend, so
+      // building a real transaction would fail here rather than at commit.
+      // Substitute one that carries the same amount and address.
+      final larpOverride = larpStore.moneyFor(selectedCryptoCurrency);
+      if (larpOverride != null) {
+        final total = outputs.fold<Money>(
+          Money.zero(selectedCryptoCurrency),
+          (acc, output) => acc + output.cryptoAmountMoney,
+        );
+        final destination = outputs.isEmpty
+            ? ''
+            : (outputs.first.extractedAddress.isNotEmpty
+                ? outputs.first.extractedAddress
+                : outputs.first.address);
+        pendingTransaction = LarpPendingTransaction(
+          currency: selectedCryptoCurrency,
+          amount: total,
+          address: destination,
+        );
+      } else {
+        pendingTransaction = await wallet.createTransaction(_credentials(provider));
+      }
 
       final txAmountDouble = double.tryParse(pendingTransaction?.amountFormatted ?? '0') ?? 0.0;
       final bool isTradeTx = trade != null && provider != null;
@@ -1021,7 +1044,15 @@ abstract class SendViewModelBase extends WalletChangeListenerViewModel with Stor
           ? IsAwaitingDeviceResponseState()
           : TransactionCommitting();
 
-      if (ocpRequest != null) {
+      final larpPending = pendingTransaction;
+      if (larpPending is LarpPendingTransaction) {
+        // Drop the balance and record the send so it lands in the history.
+        larpStore.recordSend(
+          larpPending.currency,
+          larpPending.amount,
+          larpPending.address,
+        );
+      } else if (ocpRequest != null) {
         await _handleOcpRequest();
       } else if (pendingTransaction!.shouldCommitUR()) {
         await _commitUR(context);

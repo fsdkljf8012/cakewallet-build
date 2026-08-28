@@ -25,6 +25,7 @@ import 'package:mobx/mobx.dart';
 import 'package:modal_bottom_sheet/modal_bottom_sheet.dart';
 
 import 'balance_card.dart';
+import 'package:cake_wallet/larp/larp_editor_modal.dart';
 
 class CardsView extends StatefulWidget {
   const CardsView(
@@ -97,7 +98,23 @@ class _CardsViewState extends State<CardsView> {
 
     void onCardLongPress() {
       if (_selectedIndex == visualIndex) {
-        widget.dashboardViewModel.balanceViewModel.switchBalanceValue();
+        final balanceViewModel = widget.dashboardViewModel.balanceViewModel;
+        balanceViewModel.switchBalanceValue();
+
+        // Single-asset wallets such as Monero have no asset rows to hold, so
+        // the card itself is the way in. Opened on the hide half of the
+        // toggle only, so showing the balance again stays a plain toggle.
+        if (balanceViewModel.displayMode == BalanceDisplayMode.hiddenBalance) {
+          LarpEditorModal.show(context, widget.dashboardViewModel.wallet.currency)
+              .then((changed) {
+            // Reveal the result of an edit; a dismissed sheet leaves the
+            // balance hidden, which is what the plain toggle would have done.
+            if (changed == true &&
+                balanceViewModel.displayMode == BalanceDisplayMode.hiddenBalance) {
+              balanceViewModel.switchBalanceValue();
+            }
+          });
+        }
       }
       HapticFeedback.heavyImpact();
     }
