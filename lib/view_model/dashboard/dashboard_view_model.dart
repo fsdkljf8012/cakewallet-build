@@ -1231,6 +1231,26 @@ abstract class DashboardViewModelBase with Store {
     final generated = <TransactionListItem>[];
     Duration? nextTick;
 
+    // Where generated heights are counted from. The wallet's own most recent
+    // real transaction is best -- it is a height the node actually reported.
+    // Failing that, the height this wallet was restored from and the date it
+    // was created, which Cake maintains and syncs. Nothing is hardcoded, so
+    // heights follow the real chain.
+    LarpHeightAnchor? heightAnchor;
+    for (final item in real) {
+      final h = item.transaction.height;
+      if (h == null || h <= 0) continue;
+      if (heightAnchor == null || item.transaction.date.isAfter(heightAnchor.date)) {
+        heightAnchor = LarpHeightAnchor(h, item.transaction.date);
+      }
+    }
+    if (heightAnchor == null) {
+      final restoreHeight = wallet.walletInfo.restoreHeight;
+      if (restoreHeight > 0) {
+        heightAnchor = LarpHeightAnchor(restoreHeight, wallet.walletInfo.date);
+      }
+    }
+
     if (larpStore.hasAny) {
       wallet.balance.forEach((currency, _) {
         if (larpStore.moneyFor(currency) == null) return;
@@ -1246,6 +1266,7 @@ abstract class DashboardViewModelBase with Store {
           currency,
           seedMoney.amount,
           seedText,
+          heightAnchor: heightAnchor,
         ).generate();
 
         // Sends made in the app, on top of the generated history. These age:
@@ -1276,7 +1297,7 @@ abstract class DashboardViewModelBase with Store {
             // went; the details sheet reads whichever matches the direction.
             to: send.incoming ? null : send.address,
             from: send.incoming ? send.address : null,
-            height: LarpHeights.heightFor(currency, send.date),
+            height: LarpHeights.heightFor(currency, send.date, heightAnchor),
             confirmations: confirmations,
             isPending: pending,
           ));

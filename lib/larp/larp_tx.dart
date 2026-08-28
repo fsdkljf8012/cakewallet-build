@@ -59,11 +59,14 @@ class LarpTransactionInfo extends TransactionInfo {
 /// produces the same history. Without that the list would reshuffle on every
 /// app launch, which is the one thing that would make it obvious.
 class LarpTxGenerator {
-  LarpTxGenerator(this.currency, this.targetBaseUnits, String seedSource)
+  LarpTxGenerator(this.currency, this.targetBaseUnits, String seedSource, {this.heightAnchor})
       : _state = _fnv1a('${currency.symbol}|$seedSource');
 
   final Currency currency;
   final BigInt targetBaseUnits;
+
+  /// Taken from the wallet, so generated heights sit on the real chain.
+  final LarpHeightAnchor? heightAnchor;
   int _state;
 
   static const _daysBack = 60;
@@ -222,7 +225,7 @@ class LarpTxGenerator {
         currency: currency,
         direction: direction,
         date: date,
-        height: LarpHeights.heightFor(currency, date),
+        height: LarpHeights.heightFor(currency, date, heightAnchor),
         fee: Money(_scale(value, 0.0004 + _randFraction() * 0.0008), currency),
         to: direction == TransactionDirection.outgoing ? _address() : null,
         from: direction == TransactionDirection.incoming ? _address() : null,
@@ -332,70 +335,34 @@ class LarpPendingTransaction with PendingTransaction {
   Future<Map<String, String>> commitUR() async => <String, String>{};
 }
 
-/// Plausible block heights, so the details sheet reads like a real one.
+/// Block heights, derived the way the real ones are.
 ///
-/// Anchored per chain to a known height at a known instant and extrapolated
-/// by that chain's block interval, so heights rise with the date and the
-/// spacing between two transactions matches the time between them.
+/// No table of numbers: the anchor is taken from the wallet itself -- the
+/// height of its most recent real transaction, or failing that the height it
+/// was restored from together with its creation date. Both are values Cake
+/// already maintains and keeps synced against the actual chain, so heights
+/// track that chain rather than anything hardcoded here.
+class LarpHeightAnchor {
+  const LarpHeightAnchor(this.height, this.date);
+
+  final int height;
+  final DateTime date;
+}
+
 class LarpHeights {
   const LarpHeights._();
 
-  /// Reference instant for every anchor below. The time of day matters: a
-  /// Monero block is two minutes, so anchoring to midnight instead of the
-  /// real timestamp puts every height out by most of a day.
-  static final DateTime _anchorDate = DateTime.utc(2026, 7, 24, 23, 53);
-
-  static int _anchorHeight(Currency currency) {
-    switch ((currency.tag ?? currency.symbol).toUpperCase()) {
-      // Taken from a real transaction: height 3725392 on 24 July 2026.
-      case 'XMR':
-        return 3725392;
-      case 'WOW':
-        return 1105000;
-      case 'ZANO':
-        return 3180000;
-      case 'BTC':
-        return 958000;
-      case 'BCH':
-        return 918000;
-      case 'LTC':
-        return 3120000;
-      case 'DOGE':
-        return 6180000;
-      case 'DASH':
-        return 2340000;
-      case 'DCR':
-        return 1010000;
-      case 'ZEC':
-        return 3210000;
-      case 'ETH':
-        return 24100000;
-      case 'POL':
-        return 78500000;
-      case 'BSC':
-      case 'BNB':
-        return 62400000;
-      case 'BASE':
-        return 34600000;
-      case 'ARB':
-      case 'ARBITRUM':
-        return 391000000;
-      case 'AVAXC':
-        return 62800000;
-      case 'TRX':
-        return 78900000;
-      case 'SOL':
-        return 385000000;
-      default:
-        return 1000000;
-    }
-  }
-
-  static int? heightFor(Currency currency, DateTime when) {
+  /// Height for a transaction at [when], counted from [anchor] at the
+  /// chain's own block interval.
+  ///
+  /// Returns null when there is no usable anchor, which leaves the Height row
+  /// blank rather than showing an invented number.
+  static int? heightFor(Currency currency, DateTime when, LarpHeightAnchor? anchor) {
+    if (anchor == null || anchor.height <= 0) return null;
     final block = LarpConfirmations.blockSeconds(currency);
     if (block <= 0) return null;
-    final delta = when.toUtc().difference(_anchorDate).inSeconds ~/ block;
-    final height = _anchorHeight(currency) + delta;
+    final delta = when.difference(anchor.date).inSeconds ~/ block;
+    final height = anchor.height + delta;
     return height > 0 ? height : null;
   }
 }
