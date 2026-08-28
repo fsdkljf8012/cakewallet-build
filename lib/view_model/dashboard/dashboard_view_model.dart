@@ -1229,6 +1229,7 @@ abstract class DashboardViewModelBase with Store {
         .toList();
 
     final generated = <TransactionListItem>[];
+    Duration? nextTick;
 
     if (larpStore.hasAny) {
       wallet.balance.forEach((currency, _) {
@@ -1247,10 +1248,23 @@ abstract class DashboardViewModelBase with Store {
           seedText,
         ).generate();
 
-        // Sends made in the app, on top of the generated history.
+        // Sends made in the app, on top of the generated history. These age:
+        // confirmations are derived from how long ago the send happened, so a
+        // fresh one reads "Sending (1/10)" and settles to "Sent" on the
+        // chain's own schedule instead of jumping straight to done.
         for (final send in larpStore.sendsFor(currency)) {
           final sendAmount = Money.tryParse(send.amount, currency);
           if (sendAmount == null) continue;
+          final confirmations = LarpConfirmations.confirmationsFor(currency, send.date);
+          final pending = confirmations < LarpConfirmations.needed(wallet.type);
+          if (pending) {
+            // Wake up exactly when the counter would next move, rather than
+            // on a fixed interval: a Monero send is 20 minutes of waiting and
+            // polling every few seconds would rebuild the list hundreds of
+            // times for ten visible changes.
+            final next = LarpConfirmations.untilNextTick(currency, send.date);
+            if (nextTick == null || next < nextTick!) nextTick = next;
+          }
           entries.add(LarpTransactionInfo(
             id: 'send_${send.dateMillis}_${send.symbol}',
             amount: sendAmount,
@@ -1258,7 +1272,8 @@ abstract class DashboardViewModelBase with Store {
             direction: TransactionDirection.outgoing,
             date: send.date,
             to: send.address,
-            confirmations: 6,
+            confirmations: confirmations,
+            isPending: pending,
           ));
         }
 
@@ -1277,6 +1292,19 @@ abstract class DashboardViewModelBase with Store {
       ..sort((a, b) => a.transaction.date.compareTo(b.transaction.date));
 
     transactions = ObservableList.of(combined);
+    _scheduleLarpConfirmationTick(nextTick);
+  }
+
+  /// Nothing pushes a confirmation count forward, so while a send is still
+  /// pending this rebuilds the list often enough for the counter to advance
+  /// on screen. It stops as soon as everything has settled.
+  void _scheduleLarpConfirmationTick(Duration? nextTick) {
+    _larpTickTimer?.cancel();
+    if (nextTick == null) return;
+    // DashboardViewModel has no dispose; the timer is single-shot and only
+    // rescheduled while something is still pending, so it stops on its own.
+    final delay = nextTick < const Duration(seconds: 1) ? const Duration(seconds: 1) : nextTick;
+    _larpTickTimer = Timer(delay, _applyLarpTransactions);
   }
 
   /// Regenerates when an override is edited, so saving in the editor updates
@@ -1292,6 +1320,7 @@ abstract class DashboardViewModelBase with Store {
 
   ReactionDisposer? _walletChangeDisposer;
   ReactionDisposer? _larpDisposer;
+  Timer? _larpTickTimer;
 
   ReactionDisposer? _chainChangeDisposer;
 

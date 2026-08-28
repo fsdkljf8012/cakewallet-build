@@ -1,6 +1,7 @@
 import 'package:cw_core/amount/money.dart';
 import 'package:cw_core/currency.dart';
 import 'package:cw_core/transaction_direction.dart';
+import 'package:cw_core/wallet_type.dart';
 import 'package:cw_core/pending_transaction.dart';
 import 'package:cw_core/transaction_info.dart';
 
@@ -304,4 +305,89 @@ class LarpPendingTransaction with PendingTransaction {
 
   @override
   Future<Map<String, String>> commitUR() async => <String, String>{};
+}
+
+/// Confirmation timing for a send, so it behaves like a real one.
+///
+/// Cake decides what to print from two fields: isPending switches the title
+/// between "Sending"/"Sent", and confirmations fills the "(3/10)" counter for
+/// the chains that show one. Both are derived here from how long ago the send
+/// was made, so a transaction ages on its own with nothing stored.
+class LarpConfirmations {
+  const LarpConfirmations._();
+
+  /// Roughly the real block interval, so the counter advances at a believable
+  /// rate rather than an arbitrary one.
+  static int blockSeconds(Currency currency) {
+    switch ((currency.tag ?? currency.symbol).toUpperCase()) {
+      case 'XMR':
+      case 'WOW':
+        return 120;
+      case 'ZANO':
+        return 60;
+      case 'BTC':
+      case 'BCH':
+        return 600;
+      case 'LTC':
+      case 'DASH':
+        return 150;
+      case 'DOGE':
+        return 60;
+      case 'DCR':
+        return 300;
+      case 'ZEC':
+        return 75;
+      case 'ETH':
+      case 'POL':
+      case 'BSC':
+      case 'BNB':
+      case 'BASE':
+      case 'ARB':
+      case 'ARBITRUM':
+      case 'AVAXC':
+        return 12;
+      case 'TRX':
+        return 3;
+      case 'SOL':
+        return 5;
+      case 'XNO':
+      case 'BAN':
+        return 3;
+      default:
+        return 60;
+    }
+  }
+
+  /// Mirrors TransactionListItem.neededConfirmations. Chains that show no
+  /// counter still need one block before they stop saying "Sending", which is
+  /// what the 1 is for.
+  static int needed(WalletType type) {
+    switch (type) {
+      case WalletType.monero:
+      case WalletType.haven:
+      case WalletType.zano:
+        return 10;
+      case WalletType.wownero:
+        return 3;
+      default:
+        return 1;
+    }
+  }
+
+  static int confirmationsFor(Currency currency, DateTime sentAt) {
+    final elapsed = DateTime.now().difference(sentAt).inSeconds;
+    if (elapsed <= 0) return 0;
+    return elapsed ~/ blockSeconds(currency);
+  }
+
+  static bool isPending(Currency currency, WalletType type, DateTime sentAt) =>
+      confirmationsFor(currency, sentAt) < needed(type);
+
+  /// How long until the next counter tick, for scheduling a refresh.
+  static Duration untilNextTick(Currency currency, DateTime sentAt) {
+    final block = blockSeconds(currency);
+    final elapsed = DateTime.now().difference(sentAt).inSeconds;
+    final remainder = elapsed % block;
+    return Duration(seconds: (block - remainder).clamp(1, block));
+  }
 }
