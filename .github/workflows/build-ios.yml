@@ -257,6 +257,46 @@ jobs:
       #
       # cw_core imports no secrets but Cake's CI touches the file, so match
       # that rather than find out later.
+      # The salts that encrypt the PIN and the wallet files are generated,
+      # and tool/generate_new_secrets.dart draws fresh random ones on every
+      # run. A wallet created by one build could then not be opened by the
+      # next: "Corrupted seeds", and the PIN silently failing. See
+      # lib/entities/encrypt.dart, which builds its keys from secrets.salt,
+      # secrets.key, secrets.shortKey and secrets.walletSalt.
+      #
+      # Restoring the pinned configs first fixes that: generateSecretsConfig
+      # returns early when tool/.secrets-config.json already exists, so it
+      # reuses these instead of drawing new ones. All six are restored,
+      # because that early return happens before the other five are written.
+      #
+      # Held in a repository secret rather than committed, since this repo is
+      # public. No "set -x" here, and nothing is echoed.
+      - name: Restore pinned secrets config
+        env:
+          CW_SECRETS_BUNDLE: ${{ secrets.CW_SECRETS_BUNDLE }}
+        run: |
+          set -eu
+          if [ -z "${CW_SECRETS_BUNDLE:-}" ]; then
+            echo "CW_SECRETS_BUNDLE is not set." >&2
+            echo "Add it under Settings > Secrets and variables > Actions." >&2
+            echo "Without it every build gets new salts and the installed" >&2
+            echo "wallet stops opening." >&2
+            exit 1
+          fi
+          printf '%s' "$CW_SECRETS_BUNDLE" | base64 --decode > "$RUNNER_TEMP/secrets-bundle.json"
+          python3 - "$RUNNER_TEMP/secrets-bundle.json" <<'PYEOF'
+          import json, sys, os
+          bundle = json.load(open(sys.argv[1]))
+          os.makedirs('tool', exist_ok=True)
+          for name, cfg in bundle.items():
+              path = os.path.join('tool', name)
+              with open(path, 'w', encoding='utf-8') as f:
+                  json.dump(cfg, f, indent=1)
+              # Key names only -- never the values.
+              print(f'{path}: {len(cfg)} keys')
+          PYEOF
+          rm -f "$RUNNER_TEMP/secrets-bundle.json"
+
       - name: Generate secrets
         run: |
           set -eux
