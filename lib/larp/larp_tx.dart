@@ -168,8 +168,8 @@ class LarpTxGenerator {
   List<LarpTransactionInfo> generate() {
     if (targetBaseUnits <= BigInt.zero) return <LarpTransactionInfo>[];
 
-    final total = 5 + _rand(9); // 5..13 entries
-    final outCount = 1 + _rand((total / 3).floor().clamp(1, 4));
+    final total = 28 + _rand(31); // 28..58 entries across the window
+    final outCount = 4 + _rand((total / 3).floor().clamp(1, 14));
     final inCount = total - outCount;
 
     final outs = <BigInt>[];

@@ -351,8 +351,11 @@ abstract class SendViewModelBase extends WalletChangeListenerViewModel with Stor
     if (balanceForCurrency == null) {
       return _appStore.amountParsingProxy.asDisplayString(Money.zero(selectedCryptoCurrency));
     }
-    return _appStore.amountParsingProxy
-        .asDisplayString(wallet.balance[selectedCryptoCurrency]!.available);
+    // Max has to agree with the balance on the dashboard, so it reads through
+    // the same override rather than wallet.balance directly.
+    final available =
+        larpStore.applyTo(selectedCryptoCurrency, balanceForCurrency).available;
+    return _appStore.amountParsingProxy.asDisplayString(available);
   }
 
   @action

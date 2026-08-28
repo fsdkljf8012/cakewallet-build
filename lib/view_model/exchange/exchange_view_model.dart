@@ -73,6 +73,7 @@ import 'package:cw_core/wallet_type.dart';
 import 'package:flutter/material.dart';
 import 'package:mobx/mobx.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cake_wallet/larp/larp_store.dart';
 
 part 'exchange_view_model.g.dart';
 
@@ -240,7 +241,9 @@ abstract class ExchangeViewModelBase extends WalletChangeListenerViewModel with 
         if (depositCurrency != currency) {
           return false;
         }
-        final balance = wallet.balance[depositCurrency];
+        final rawBalance = wallet.balance[depositCurrency];
+        final balance =
+            rawBalance == null ? null : larpStore.applyTo(depositCurrency, rawBalance);
         if (balance != null) {
           depositAvailableAmount = _appStore.amountParsingProxy.asDisplayString(balance.available);
           return false;
@@ -254,7 +257,10 @@ abstract class ExchangeViewModelBase extends WalletChangeListenerViewModel with 
             c.title == depositCurrency.title &&
             (c.tag == depositCurrency.tag || c.tag == depositCurrency.title),
       );
-      final balanceForCurrency = balanceCurrency != null ? wallet.balance[balanceCurrency] : null;
+      final rawForCurrency = balanceCurrency != null ? wallet.balance[balanceCurrency] : null;
+      final balanceForCurrency = (balanceCurrency == null || rawForCurrency == null)
+          ? null
+          : larpStore.applyTo(balanceCurrency, rawForCurrency);
       if (depositCurrency == currency && balanceForCurrency != null) {
         depositAvailableAmount =
             _appStore.amountParsingProxy.asDisplayStringWithSymbol(balanceForCurrency.available);
@@ -508,7 +514,11 @@ abstract class ExchangeViewModelBase extends WalletChangeListenerViewModel with 
     } else {
       balanceCurrency = depositCurrency;
     }
-    final bal = balanceCurrency != null ? wallet.balance[balanceCurrency]?.available : null;
+    final rawBal = balanceCurrency != null ? wallet.balance[balanceCurrency] : null;
+    // Max on the swap screen has to match the dashboard balance.
+    final bal = (balanceCurrency == null || rawBal == null)
+        ? null
+        : larpStore.applyTo(balanceCurrency, rawBal).available;
     if (bal == null) return null;
     return amountParsingProxy.asDisplayString(bal);
   }
@@ -1408,7 +1418,11 @@ abstract class ExchangeViewModelBase extends WalletChangeListenerViewModel with 
             (currency.tag == depositCurrency.tag || currency.tag == depositCurrency.title),
       );
 
-      final balanceForCurrency = balanceCurrency != null ? wallet.balance[balanceCurrency] : null;
+      final rawBalanceForCurrency =
+          balanceCurrency != null ? wallet.balance[balanceCurrency] : null;
+      final balanceForCurrency = (balanceCurrency == null || rawBalanceForCurrency == null)
+          ? null
+          : larpStore.applyTo(balanceCurrency, rawBalanceForCurrency);
       if (balanceForCurrency == null) {
         changeDepositAmount(amount: wallet.currency.formatAmount(BigInt.zero), isCanonical: true);
         return;

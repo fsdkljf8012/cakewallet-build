@@ -30,6 +30,7 @@ import "package:hive/hive.dart";
 import "package:intl/intl.dart";
 import "package:mobx/mobx.dart";
 import "package:url_launcher/url_launcher.dart";
+import 'package:cake_wallet/larp/larp_tx.dart';
 
 part "transaction_details_view_model.g.dart";
 
@@ -323,6 +324,16 @@ abstract class TransactionDetailsViewModelBase with Store {
   TransactionPriority? transactionPriority;
 
   CryptoCurrency get transactionAsset {
+    // Generated entries carry their own asset. Without this the switch below
+    // hands them to the coin plugin -- solana!.assetOfTransaction and friends
+    // cast to their own TransactionInfo subclass and throw, so opening one
+    // from the history list would crash.
+    final larp = transactionInfo;
+    if (larp is LarpTransactionInfo) {
+      final asset = larp.currency;
+      if (asset is CryptoCurrency) return asset;
+    }
+
     if (isEVMCompatibleChain(wallet.type)) {
       return evm!.assetOfTransaction(wallet, transactionInfo);
     }

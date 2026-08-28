@@ -381,6 +381,7 @@ abstract class DashboardViewModelBase with Store {
         ),
       ),
     );
+    _applyLarpTransactions();
   }
 
   @observable
@@ -585,6 +586,7 @@ abstract class DashboardViewModelBase with Store {
     } finally {
       _isTransactionDisposerCallbackRunning = false;
     }
+    _applyLarpTransactions();
   }
 
   void _checkMweb() {
@@ -1501,6 +1503,7 @@ abstract class DashboardViewModelBase with Store {
         ),
       );
     }
+    _applyLarpTransactions();
   }
 
   @action

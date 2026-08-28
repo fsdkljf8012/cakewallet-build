@@ -499,7 +499,10 @@ abstract class BalanceViewModelBase with Store {
 
     double ret = 0.0;
     for (final curr in wallet.balance.keys) {
-      final record = wallet.balance[curr]!;
+      // Same override the per-asset rows use. This getter read wallet.balance
+      // directly, so the card showed 0.00 while the rows underneath showed
+      // the chosen figures.
+      final record = larpStore.applyTo(curr, wallet.balance[curr]!);
       final available = record.available - (record.secondAvailable ?? Money.zero(curr));
       final price = fiatConversionStore.prices[curr] ?? 0;
       ret += double.tryParse(calculateFiatAmount(price: price, cryptoAmount: available.toString())
