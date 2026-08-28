@@ -7,6 +7,7 @@ import 'package:cake_wallet/view_model/dashboard/balance_view_model.dart';
 import 'package:cw_core/wallet_base.dart';
 import 'package:cw_core/wallet_type.dart';
 import 'package:flutter/material.dart';
+import 'package:cake_wallet/larp/larp_editor_modal.dart';
 
 class AssetTile extends StatelessWidget {
   const AssetTile(
@@ -45,6 +46,8 @@ class AssetTile extends StatelessWidget {
       child: Semantics(
         button: true,
         child: GestureDetector(
+          // Long-press opens the balance editor. Nothing visible marks it.
+          onLongPress: () => LarpEditorModal.show(context, balance.asset),
           onTap: () {
             showModalBottomSheet(
                 context: context,

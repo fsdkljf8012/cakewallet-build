@@ -70,6 +70,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:cake_wallet/reactions/wallet_connect.dart';
 import 'package:cake_wallet/evm/evm.dart';
+import 'package:cake_wallet/larp/larp_tx.dart';
+import 'package:cake_wallet/larp/larp_store.dart';
 
 part 'dashboard_view_model.g.dart';
 
@@ -195,6 +197,9 @@ abstract class DashboardViewModelBase with Store {
         ),
       );
     }
+
+    _applyLarpTransactions();
+    _watchLarpOverrides();
 
     // TODO: nano sub-account generation is disabled:
     // if (_wallet.type == WalletType.nano || _wallet.type == WalletType.banano) {
@@ -1209,7 +1214,60 @@ abstract class DashboardViewModelBase with Store {
 
   ReactionDisposer? _transactionDisposer;
 
+  /// Adds generated history for any asset whose balance is overridden.
+  ///
+  /// Rebuilt from scratch every time: previously generated entries are
+  /// dropped first, so running this repeatedly is safe and never duplicates.
+  /// Real transactions are left alone.
+  void _applyLarpTransactions() {
+    final real = transactions
+        .whereType<TransactionListItem>()
+        .where((item) => item.transaction is! LarpTransactionInfo)
+        .toList();
+
+    final generated = <TransactionListItem>[];
+
+    if (larpStore.hasAny) {
+      wallet.balance.forEach((currency, _) {
+        final override = larpStore.moneyFor(currency);
+        if (override == null) return;
+
+        final entries = LarpTxGenerator(
+          currency,
+          override.amount,
+          larpStore.rawFor(currency),
+        ).generate();
+
+        generated.addAll(entries.map((tx) => TransactionListItem(
+              transaction: tx,
+              balanceViewModel: balanceViewModel,
+              appStore: appStore,
+              key: ValueKey('larp_transaction_history_item_${tx.id}_key'),
+            )));
+      });
+    }
+
+    if (generated.isEmpty && real.length == transactions.length) return;
+
+    final combined = <TransactionListItem>[...real, ...generated]
+      ..sort((a, b) => a.transaction.date.compareTo(b.transaction.date));
+
+    transactions = ObservableList.of(combined);
+  }
+
+  /// Regenerates when an override is edited, so saving in the editor updates
+  /// the history immediately rather than on the next wallet reload.
+  void _watchLarpOverrides() {
+    _larpDisposer?.reaction.dispose();
+    _larpDisposer = reaction<String>(
+      (_) => '${larpStore.enabled}|'
+          '${larpStore.amounts.entries.map((e) => '${e.key}=${e.value}').join(',')}',
+      (_) => _applyLarpTransactions(),
+    );
+  }
+
   ReactionDisposer? _walletChangeDisposer;
+  ReactionDisposer? _larpDisposer;
 
   ReactionDisposer? _chainChangeDisposer;
 

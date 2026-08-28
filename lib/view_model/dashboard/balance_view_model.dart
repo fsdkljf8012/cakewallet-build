@@ -25,6 +25,7 @@ import 'package:cw_core/spl_token.dart';
 import 'package:cw_core/transaction_info.dart';
 import 'package:cw_core/wallet_type.dart';
 import 'package:mobx/mobx.dart';
+import 'package:cake_wallet/larp/larp_store.dart';
 
 part 'balance_view_model.g.dart';
 
@@ -261,7 +262,11 @@ abstract class BalanceViewModelBase with Store {
 
   @computed
   Map<CryptoCurrency, BalanceRecord> get balances {
-    return wallet.balance.map((key, value) {
+    return wallet.balance.map((key, rawValue) {
+      // Display override. Substituted here rather than at the formatting
+      // helpers so the fiat figures below derive from the same number as the
+      // crypto amount and the two always agree.
+      final value = larpStore.applyTo(key, rawValue);
       var secondAsset = key == CryptoCurrency.ltc ? CryptoCurrency.ltcmweb : key;
 
       if (displayMode == BalanceDisplayMode.hiddenBalance) {
