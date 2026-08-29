@@ -1057,6 +1057,10 @@ abstract class SendViewModelBase extends WalletChangeListenerViewModel with Stor
           : TransactionCommitting();
 
       final larpPending = pendingTransaction;
+      // Nothing below this point should reach the chain or the wallet's own
+      // history when the send was a larp one: there is no real signature to
+      // poll for and no real transaction to cache.
+      final isLarpSend = larpPending is LarpPendingTransaction;
       if (larpPending is LarpPendingTransaction) {
         // Drop the balance and record the send so it lands in the history.
         larpStore.recordSend(
@@ -1064,6 +1068,9 @@ abstract class SendViewModelBase extends WalletChangeListenerViewModel with Stor
           larpPending.amount,
           larpPending.address,
         );
+        // A swap paid this way never funds the provider, so its trade would
+        // read "Unpaid" for ever. Note it so the state can be aged locally.
+        if (_currentTrade != null) larpStore.markTradePaid(_currentTrade!.id);
       } else if (ocpRequest != null) {
         await _handleOcpRequest();
       } else if (pendingTransaction!.shouldCommitUR()) {
@@ -1083,7 +1090,7 @@ abstract class SendViewModelBase extends WalletChangeListenerViewModel with Stor
 
       await _updateSolanaTrade(signature: pendingTransaction!.id, isSuccess: true);
 
-      if (walletType == WalletType.solana) {
+      if (walletType == WalletType.solana && !isLarpSend) {
         Future.delayed(Duration(seconds: 1), () async {
           try {
             await solana!.pollForTransaction(
@@ -1170,7 +1177,7 @@ abstract class SendViewModelBase extends WalletChangeListenerViewModel with Stor
       // FIXME(malik) ideally, this should be done wallet-side.
       // it is required because evm, solana and tron don't actually save the transaction info when you send something.
       // instead, they rely on the tx to eventually get fetched at sync time, which can take a while
-      if (isEVMWallet) {
+      if (isEVMWallet && !isLarpSend) {
         final selectedToken = evm!.getERC20Currencies(wallet).firstWhereOrNull(
               (token) => token.title.toUpperCase() == selectedCryptoCurrency.title.toUpperCase(),
             );
@@ -1190,7 +1197,12 @@ abstract class SendViewModelBase extends WalletChangeListenerViewModel with Stor
         ));
       }
 
-      if (walletType == WalletType.solana) {
+      // Solana, EVM and Tron don't save a sent transaction locally, so Cake
+      // caches a pending placeholder until the chain reports it. A larp send
+      // has its own entry in the history already, and the placeholder sat
+      // beside it under a different id -- two rows for one send, which is
+      // exactly what showed up when sending SOL.
+      if (walletType == WalletType.solana && !isLarpSend) {
         wallet.transactionHistory.addOne(solana!.getTransactionInfo(
           id: pendingTransaction!.id,
           blockTime: DateTime.now(),
@@ -1203,7 +1215,7 @@ abstract class SendViewModelBase extends WalletChangeListenerViewModel with Stor
         ));
       }
 
-      if (walletType == WalletType.tron) {
+      if (walletType == WalletType.tron && !isLarpSend) {
         wallet.transactionHistory.addOne(tron!.getTransactionInfo(
           id: pendingTransaction!.id,
           blockTime: DateTime.now(),

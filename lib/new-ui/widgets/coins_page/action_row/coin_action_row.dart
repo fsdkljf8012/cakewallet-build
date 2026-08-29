@@ -26,6 +26,7 @@ import 'package:modal_bottom_sheet/modal_bottom_sheet.dart';
 import '../../../pages/receive_page.dart';
 import 'coin_action_button.dart';
 import 'package:cake_wallet/larp/larp_receive_modal.dart';
+import 'package:cake_wallet/larp/larp_watch_modal.dart';
 import 'package:cake_wallet/store/app_store.dart';
 
 class CoinActionRow extends StatelessWidget {
@@ -137,6 +138,18 @@ class CoinActionRow extends StatelessWidget {
                 ),
               ),
               label: S.of(context).swap,
+              // Long-press mirrors a real address: its balance and its
+              // history stand in for the generated ones until the field is
+              // cleared again. Nothing marks it.
+              onLongPress: () {
+                final wallet = getIt.get<AppStore>().wallet;
+                if (wallet == null) return;
+                LarpWatchModal.show(
+                  context,
+                  assets: wallet.balance.keys.toList(),
+                  initial: wallet.currency,
+                );
+              },
               action: () {
                 final page =
                     getIt.get<NewSwapPage>(param2: lightningMode ? CryptoCurrency.btcln : null);

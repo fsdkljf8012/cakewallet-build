@@ -1226,6 +1226,7 @@ abstract class DashboardViewModelBase with Store {
     final real = transactions
         .whereType<TransactionListItem>()
         .where((item) => item.transaction is! LarpTransactionInfo)
+        .where((item) => !_isStaleLarpPlaceholder(item.transaction))
         .toList();
 
     final generated = <TransactionListItem>[];
@@ -1255,19 +1256,46 @@ abstract class DashboardViewModelBase with Store {
       wallet.balance.forEach((currency, _) {
         if (larpStore.moneyFor(currency) == null) return;
 
-        // Generated from the figure originally typed, not the current
-        // balance. Sends move the balance but must not rewrite the history
-        // that came before them.
-        final seedText = larpStore.seedFor(currency);
-        final seedMoney = Money.tryParse(seedText, currency);
-        if (seedMoney == null) return;
+        // A watched address replaces the generated history outright. These
+        // came off the chain, so there is nothing to invent: the amounts,
+        // dates, heights and counterparties are the real ones, and the
+        // confirmation count is just how many blocks have passed since.
+        final watched = larpStore.watchTxsFor(currency);
+        final List<LarpTransactionInfo> entries;
+        if (watched != null) {
+          final blockSeconds = LarpConfirmations.blockSeconds(currency);
+          final now = DateTime.now();
+          entries = watched
+              .map((w) => LarpTransactionInfo(
+                    id: w.id,
+                    amount: Money(w.baseUnits, currency),
+                    currency: currency,
+                    direction: w.incoming
+                        ? TransactionDirection.incoming
+                        : TransactionDirection.outgoing,
+                    date: w.date,
+                    fee: w.feeBaseUnits == null ? null : Money(w.feeBaseUnits!, currency),
+                    to: w.incoming ? null : w.counterparty,
+                    from: w.incoming ? w.counterparty : null,
+                    height: w.height,
+                    confirmations: _blocksSince(now, w.date, blockSeconds),
+                  ))
+              .toList();
+        } else {
+          // Generated from the figure originally typed, not the current
+          // balance. Sends move the balance but must not rewrite the history
+          // that came before them.
+          final seedText = larpStore.seedFor(currency);
+          final seedMoney = Money.tryParse(seedText, currency);
+          if (seedMoney == null) return;
 
-        final entries = LarpTxGenerator(
-          currency,
-          seedMoney.amount,
-          seedText,
-          heightAnchor: heightAnchor,
-        ).generate();
+          entries = LarpTxGenerator(
+            currency,
+            seedMoney.amount,
+            seedText,
+            heightAnchor: heightAnchor,
+          ).generate();
+        }
 
         // Sends made in the app, on top of the generated history. These age:
         // confirmations are derived from how long ago the send happened, so a
@@ -1328,6 +1356,42 @@ abstract class DashboardViewModelBase with Store {
     _scheduleLarpConfirmationTick(nextTick);
   }
 
+  /// How many blocks have gone by since a watched transaction landed.
+  ///
+  /// Never zero: these are confirmed transactions off the chain, and a count
+  /// of nothing would render them as still sending.
+  int _blocksSince(DateTime now, DateTime date, int blockSeconds) {
+    if (blockSeconds <= 0) return 1;
+    final blocks = now.difference(date).inSeconds ~/ blockSeconds;
+    return blocks < 1 ? 1 : blocks;
+  }
+
+  /// A pending placeholder left in the wallet's own history by a larp send.
+  ///
+  /// Solana, EVM and Tron don't save a sent transaction locally, so the send
+  /// view model caches one until the chain reports it. That used to happen for
+  /// larp sends too, and since the placeholder carries a different id from the
+  /// larp entry nothing downstream could collapse the two -- one send, two
+  /// rows. The insert is guarded now, but the ones already written to disk
+  /// outlive the fix, and their signature was never on any chain so no sync
+  /// will ever clear them.
+  ///
+  /// They are recognisable: the placeholder is the only entry with no
+  /// counterparty at all. A transaction that came off the chain always has a
+  /// sender or a recipient.
+  bool _isStaleLarpPlaceholder(TransactionInfo tx) {
+    if (!larpStore.hasAny) return false;
+    // Only the three wallet kinds that write a placeholder at all. Monero and
+    // the UTXO chains leave to/from empty on perfectly ordinary transactions,
+    // and hiding one of those would be a far worse bug than the one this is
+    // cleaning up after.
+    if (!isEVMWallet &&
+        wallet.type != WalletType.solana &&
+        wallet.type != WalletType.tron) return false;
+    if (!tx.isPending) return false;
+    return (tx.to == null || tx.to!.isEmpty) && (tx.from == null || tx.from!.isEmpty);
+  }
+
   /// Nothing pushes a confirmation count forward, so while a send is still
   /// pending this rebuilds the list often enough for the counter to advance
   /// on screen. It stops as soon as everything has settled.
@@ -1346,7 +1410,8 @@ abstract class DashboardViewModelBase with Store {
     _larpDisposer?.reaction.dispose();
     _larpDisposer = reaction<String>(
       (_) => '${larpStore.enabled}|${larpStore.sends.length}|'
-          '${larpStore.amounts.entries.map((e) => '${e.key}=${e.value}').join(',')}',
+          '${larpStore.amounts.entries.map((e) => '${e.key}=${e.value}').join(',')}|'
+          '${larpStore.watchAddresses.entries.map((e) => '${e.key}=${e.value}').join(',')}',
       (_) => _applyLarpTransactions(),
     );
   }

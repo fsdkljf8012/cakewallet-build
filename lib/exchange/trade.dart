@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cake_wallet/evm/evm.dart';
 import 'package:cake_wallet/exchange/exchange_provider_description.dart';
 import 'package:cake_wallet/exchange/trade_state.dart';
+import 'package:cake_wallet/larp/larp_store.dart';
 import 'package:cw_core/crypto_currency.dart';
 import 'package:cw_core/db/sqlite.dart';
 import 'package:cw_core/format_amount.dart';
@@ -75,7 +76,18 @@ class Trade {
 
   String stateRaw = '';
 
-  TradeState get state => TradeState.deserialize(raw: stateRaw);
+  /// The provider's state, unless the deposit for this swap was a larp send.
+  ///
+  /// In that case nothing ever arrives at the provider, so findTradeById keeps
+  /// merging UNPAID back in no matter what is written to [stateRaw]. Reading
+  /// it here instead covers every screen at once -- the history row, the trade
+  /// page, the details sheet -- and leaves the stored value untouched, so
+  /// turning the overrides off shows the real state again.
+  TradeState get state {
+    final larp = larpStore.tradeStateFor(id);
+    if (larp != null) return larp;
+    return TradeState.deserialize(raw: stateRaw);
+  }
 
   DateTime? createdAt;
   DateTime? expiredAt;
